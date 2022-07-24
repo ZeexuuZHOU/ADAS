@@ -1,0 +1,699 @@
+#include <iostream>
+#include <fstream>
+#include <string>
+
+#include <opencv2/highgui/highgui.hpp>
+#include <opencv2/imgproc/imgproc.hpp>
+
+#include <communication/multi_socket.h>
+#include <models/tronis/ImageFrame.h>
+#include <models/tronis/BoxData.h>
+#include <grabber/opencv_tools.hpp>
+
+using namespace std;
+
+class LaneAssistant
+{
+
+	public:
+		LaneAssistant()
+		{
+		}
+
+		// Function to send steering angle and throttle value to Unreal Engine via socket
+		bool processData( tronis::CircularMultiQueuedSocket& socket )
+		{
+			// do stuff with data
+			
+            if( steering_flag )  //steering flag represents if there is a new steering angle waiting to be sent via socket
+            {
+                std::string tmp_steering = std::to_string( steering_angle );
+                socket.send( tronis::SocketData( "steering" + tmp_steering ) );
+
+				//reset the steering angle to 0 and steering flag to false
+                steering_angle = 0;
+                steering_flag = false;
+            }
+
+			if (throttle_flag) 
+			{
+                std::string tmp_throttle = std::to_string( throttle );
+				socket.send( tronis::SocketData( "throttle" + tmp_throttle ) );
+                throttle_flag = false;
+			}
+            			
+			return true;
+		}
+
+	protected:
+		std::string image_name_;
+		cv::Mat image_;													// image from camera sensor
+        tronis::LocationSub ego_location_;								// define the location of ego auto
+        tronis::OrientationSub ego_orientation_;						// define the orientation of ego auto
+        double ego_velocity_;											// define the velocity of ego auto
+        
+        float steering_angle = 0;										// define the steering angle, which are computed based on the detected lane
+        float throttle = 1;												// define the throttle, which are computed based on the distance to front car
+        float steering_k = 3.0;											// define the parameter used in the controller of steering angle
+        bool steering_flag = false;										// define a flag, which represents if there is a new steering angle input waiting to be sent
+        bool throttle_flag = false;										// define a flag, which represents if there is a new throttle input waiting to be sent
+        bool decelerate_flag = false;									// define a flag, which represents if the car should decelerate slowly
+        bool brake_flag = false;										// define a flag, which represents if the car should brake emergently
+        float maxVelocity = 2000;										// define the maximum of velocity as 2000 cm/s (72km/h)
+        float minDistance = 1500;										// define the ideal distance to front car
+        float detectDistance = minDistance + 500;						// when distance to front car smaller than detectDistance, the car should adjust itself to front car
+        float pos_x = 10000;											// initial the distance to front car in axis x
+        float pos_y = 10000;											// initial the distance to front car in axis y
+        float dist_old = minDistance;									// define the distance to front car in last sample time
+        bool right_flag = false, left_flag = false;						// define the flag, if the right or left lane are detected
+        cv::Point  rpoint_mid, lpoint_mid, point_mid;					// define the middle of road 
+
+
+		// Function to detect lanes based on camera image
+        // Insert your algorithm here
+        void detectLanes()
+        {
+			// do stuff
+
+            // 1. Denoise
+            cv::Mat denoise_image = denoise( image_ );
+
+			// 2. Cropping the region of Interest (unterhlbe rechteckig Bereich oder ein Polygon Bereich)
+            cv::Mat region_of_interest = cropping_rectangle(denoise_image);          // ein unterhlbe rechteckig Bereich des Kamerabilds
+            /*cv::Mat region_of_interests = cropping_polygon( denoise_image );*/     // ein Polygon Bereich
+           
+			// 3. Transform the original image to binary image
+            cv::Mat binary_image = toBinary(region_of_interest);                     // zuerst zum grauen Bild umgestzt, und dann im binären Bild umgesetzt
+            /*cv::Mat binary_image = toBinary_white(region_of_interest);*/			 //	weißer Bereich wild zuerst ausgewählt, und dann im binären Bild umgesetzt															
+            
+            // 4. Edge detection (mit Gradient)
+            cv::Mat edge_image = edgeDetection(binary_image);                       
+			
+			// 5. Line detection
+            lineDetection(edge_image);                                               // Hough lines transform, line split to left and right, lines regression
+			
+			// 6.Compute the steering angle using the middle point of lane
+            steeringAngle( right_flag, left_flag );
+            
+            showImage( image_name_, image_ );
+
+        }
+
+		// Function to measure the autos velocity
+        bool processPoseVelocity( tronis::PoseVelocitySub* msg )
+        {
+            ego_location_ = msg->Location;
+            ego_orientation_ = msg->Orientation;
+            ego_velocity_ = msg->Velocity;
+            std::cout << "velocity:" << ego_velocity_ << std::endl;
+            return true;
+        }
+
+        // Function to process the objects information in front of car that detected by the boundingbox sensor
+        bool processObject( tronis::BoxDataSub* sensorData )
+        {
+            // do stuff
+            brake_flag = false;           // represents if the auto should brake emergently
+            decelerate_flag = false;      //	represents if the auto should decelerate slowly
+            bool targetDetected = false;  // represents if there is an object in front of car
+            pos_x = 10000;                // initilaze the position of front car
+            pos_y = 10000;
+
+            for( size_t i = 0; i < sensorData->Objects.size(); i++ )
+            {
+                tronis::ObjectSub& object = sensorData->Objects[i];
+
+                if( object.ActorName.Value() == "Generic_Pickup_2" ||
+                    object.ActorName.Value() ==
+                        "GenericCoupe_2" )  // when two cars with those name are detected, the
+                                            // velocity controll will start
+                {
+                    /*std::cout << object.Pose.Location.GetTypeId() << std::endl;*/
+                    std::cout << object.ActorName.Value() << " at";
+                    std::cout << object.Pose.Location.ToString() << std::endl;
+
+                    float pos_x_tmp, pos_y_tmp;  // represent the position of object
+                    tronis::LocationSub location = object.Pose.Location;
+                    pos_x_tmp = location.X;
+                    pos_y_tmp = location.Y;
+
+                    // if two cars are detected at the same time, the distance to two cars will be
+                    // compared and the farther one will be ignored
+                    float dis_tmp = sqrt( pow( pos_x_tmp, 2 ) + pow( pos_y_tmp, 2 ) );
+                    float dis_tmp_min = sqrt( pow( pos_x, 2 ) + pow( pos_y, 2 ) );
+                    if( dis_tmp <= dis_tmp_min )
+                    {
+                        pos_x = pos_x_tmp;
+                        pos_y = pos_y_tmp;
+                    }
+
+                    targetDetected = true;
+                }
+            }
+            if( targetDetected )
+            {
+                // Situation 1: if the distance to front car is less than the detectDistance, the
+                // ego car will decelerate and adapts itself to front car
+                if( pos_x <= detectDistance && pos_x > 0 && pos_y < 500 && pos_y > -500 )
+                {
+                    decelerate_flag = true;
+                    std::cout << "decelerate!!!!" << std::endl;
+                }
+
+                // Situation 2: ego auto is too closed to front car, and it should brake emergently
+                if( pos_x <= 500 && pos_y < 500 && pos_y > -500 )
+                {
+                    brake_flag = true;
+                    std::cout << "brake!!!!" << std::endl;
+                }
+            }
+
+            // the velocity will be controlled according to the situation, which has been judged in
+            // last step
+            velocityController();
+            throttle_flag = true;
+            return true;
+        }
+
+		// Function to reduce the noise in camera image with a gaussian filter
+        cv::Mat denoise( cv::Mat image_ )
+        {
+            // denoise
+            cv::Mat denoise_image;
+            cv::GaussianBlur( image_, denoise_image, cv::Size( 3, 3 ), 0, 0 );
+            /*showImage( image_name_, denoise_image );*/
+            return denoise_image;
+        }
+
+        // Function to crop the region of interst with following two idea,
+        // 1. crop the botton half of the image,
+        cv::Mat cropping_rectangle( cv::Mat denoise_image )
+        {
+            int width, height;
+            width = denoise_image.cols;
+            height = denoise_image.rows / 2;
+            cv::Mat region_of_interest;
+            denoise_image( cv::Rect( 0, height, width, height ) ).copyTo( region_of_interest );
+            showImage( image_name_, region_of_interest );
+            return region_of_interest;
+        }  //
+           // 2. with a polygon
+        cv::Mat cropping_polygon( cv::Mat denoise_image )
+        {
+            cv::Mat region_of_interest;
+            cv::Mat mask = cv::Mat::zeros( denoise_image.size(), denoise_image.type() );
+            const int num = 6;
+            cv::Point points[num] = {
+                cv::Point( 0, denoise_image.rows ),
+                cv::Point( 0, denoise_image.rows * 0.75 ),
+                cv::Point( denoise_image.cols * 0.33, denoise_image.rows * 0.55 ),
+                cv::Point( denoise_image.cols * 0.66, denoise_image.rows * 0.55 ),
+                cv::Point( denoise_image.cols, denoise_image.rows * 0.75 ),
+                cv::Point( denoise_image.cols, denoise_image.rows ),
+            };
+
+            cv::fillConvexPoly( mask, points, num, cv::Scalar( 255, 255, 255 ) );
+            cv::bitwise_and( denoise_image, mask, region_of_interest );
+            showImage( "111", region_of_interest );
+            return region_of_interest;
+        }
+
+        // Function to binarize the image with following two idea
+        // 1. the image is transformed into grey image, then to binary image with a threshold
+        cv::Mat toBinary( cv::Mat region_of_interest )
+        {
+            // gray image
+            cv::Mat gray_image;
+            cv::cvtColor( region_of_interest, gray_image, cv::COLOR_BGR2GRAY );
+
+            // Binarize gray image
+            cv::Mat binary_image;
+            cv::threshold( gray_image, binary_image, 120, 255, cv::THRESH_BINARY );
+            /*showImage( "binary", binary_image );*/
+            return binary_image;
+        }
+        // 2. the white area in the image is selected and then transformed into binary image
+        cv::Mat toBinary_white( cv::Mat region_of_interest )
+        {
+            cv::Mat image_hsv;
+            cv::Mat image_selected;
+            vector<cv::Mat> hsvSplit;
+
+            // transform the BGR image to HSV image
+            cv::cvtColor( region_of_interest, image_hsv, cv::COLOR_BGR2HSV );
+
+            // histogramm equlization
+            split( image_hsv, hsvSplit );
+            cv::equalizeHist( hsvSplit[2], hsvSplit[2] );
+            merge( hsvSplit, image_hsv );
+
+            // pick the white area with a threshold
+            cv::inRange( image_hsv, cv::Scalar( 0, 0, 231 ), cv::Scalar( 180, 20, 255 ),
+                         image_selected );
+            /*showImage( "white area", image_selected );*/
+
+            return image_selected;
+        }
+
+        // Function to detect the edge with sobel operater
+        cv::Mat edgeDetection( cv::Mat binary_image )
+        {
+            // Creat the kernel (sobel operater)
+            cv::Point anchor;
+            cv::Mat kernel;
+            anchor = cv::Point( -1, -1 );
+            kernel = cv::Mat( 1, 3, CV_32F );
+            kernel.at<float>( 0, 0 ) = -1;
+            kernel.at<float>( 0, 1 ) = 0;
+            kernel.at<float>( 0, 2 ) = 1;
+
+            // filter the binary image to obtain the edge
+            cv::Mat edge_image;
+            cv::filter2D( binary_image, edge_image, -1, kernel, anchor, 0, cv::BORDER_DEFAULT );
+            /* showImage( image_name_, edge_image );*/
+            return edge_image;
+        }
+
+        // Function to detect the line
+        void lineDetection( cv::Mat edge_image )
+        {
+            // Hough transformation
+            std::vector<cv::Vec4i> lines;  // save the detected lines
+            cv::HoughLinesP( edge_image, lines, 1, CV_PI / 180, 20, 20, 30 );
+
+            // discard the unconcered line, which is too horizontal
+            double slope_thresh = 0.3;
+            std::vector<double>
+                slopes;  // saves the slopes of detected lines which are not so hotizontal
+            std::vector<cv::Vec4i>
+                selected_lines;   // saves the detected lines which are not so hotizontal
+            cv::Point ini, fini;  // define two endpoint of a line
+            for( auto i : lines )
+            {
+                // compute the slope of each line
+                ini = cv::Point( i[0], i[1] );
+                fini = cv::Point( i[2], i[3] );
+                double slope =
+                    ( static_cast<double>( fini.y ) - static_cast<double>( ini.y ) ) /
+                    ( static_cast<double>( fini.x ) - static_cast<double>( ini.x ) + 0.0001 );
+
+                // if the line is too horizontal, it will be ignored
+                if( std::abs( slope ) > slope_thresh )
+                {
+                    slopes.push_back( slope );
+                    selected_lines.push_back( i );
+                }
+            }
+
+            // split the selected lines into right and left lines
+            std::vector<cv::Vec4i> right_lines,
+                left_lines;  // save all the right lines and left lines
+
+            double image_center =
+                static_cast<double>( image_.cols / 2 );  // define the centre line of camera image
+            for( size_t j = 0; j < selected_lines.size(); j++ )
+            {
+                ini = cv::Point( selected_lines[j][0], selected_lines[j][1] );
+                fini = cv::Point( selected_lines[j][2], selected_lines[j][3] );
+                if( slopes[j] > 0 && fini.x > image_center &&
+                    ini.x > image_center )  // the right line has a positive slope and two endpoints
+                                            // stay at the right of centre line
+                {
+                    right_lines.push_back( selected_lines[j] );
+                    right_flag = true;
+                }
+                if( slopes[j] < 0 && fini.x < image_center &&
+                    ini.x < image_center )  // the left line has a negative slope and two endpoints
+                                            // stay at the left of centre line
+                {
+                    left_lines.push_back( selected_lines[j] );
+                    left_flag = true;
+                }
+            }
+
+            // regression of left and right lines
+
+            std::vector<cv::Point> right_pts,
+                left_pts;  // save the endpoints of all right lines and left lines
+            cv::Vec4d right_line,
+                left_line;           // save the result of regression, just the detected lane
+            double right_m, left_m;  // define the slope of the detected lane
+            cv::Point right_b,
+                left_b;  // define the points, which the the detected lane goes through
+            cv::Point rpoint_ini, rpoint_fin, lpoint_ini,
+                lpoint_fin;  // define the endpoints of the detected lane
+            double offset_y = image_.rows / 2;
+
+            if( right_flag )
+            {
+                // add all the points into a vector
+                for( auto i : right_lines )
+                {
+                    ini = cv::Point( i[0], i[1] );
+                    fini = cv::Point( i[2], i[3] );
+                    right_pts.push_back( ini );
+                    right_pts.push_back( fini );
+                }
+                // fit a line with the method of least squres
+                if( right_pts.size() > 0 )
+                {
+                    cv::fitLine( right_pts, right_line, cv::DIST_L2, 0, 0.01, 0.01 );
+                    right_m = right_line[1] / right_line[0];
+                    right_b = cv::Point( right_line[2], right_line[3] );
+                }
+
+                // compute the endpoints of lane with following equation
+                // x = (y - y0)/k + x0
+                rpoint_ini.y = 0 + offset_y;
+                rpoint_ini.x = ( ( 0 - right_b.y ) / right_m ) + right_b.x;
+                rpoint_fin.y = edge_image.rows + offset_y;
+                rpoint_fin.x = ( ( edge_image.rows - right_b.y ) / right_m ) + right_b.x;
+
+                // draw the lanes on the camera image as red lines
+                cv::line( image_, rpoint_ini, rpoint_fin, cv::Scalar( 0, 0, 255 ), 3, cv::LINE_AA );
+
+                // pick a point on the right lane, which is used to compute the middle of road with
+                // the points picked on the left lane
+                rpoint_mid.y = edge_image.rows * 0.2 + offset_y;
+                rpoint_mid.x = ( ( edge_image.rows * 0.2 - right_b.y ) / right_m ) + right_b.x;
+            }
+
+            // all the operation to left lines is same as the right
+            if( left_flag )
+            {
+                for( auto i : left_lines )
+                {
+                    ini = cv::Point( i[0], i[1] );
+                    fini = cv::Point( i[2], i[3] );
+                    left_pts.push_back( ini );
+                    left_pts.push_back( fini );
+                }
+                if( left_pts.size() > 0 )
+                {
+                    cv::fitLine( left_pts, left_line, cv::DIST_L2, 0, 0.01, 0.01 );
+                    left_m = left_line[1] / left_line[0];
+                    left_b = cv::Point( left_line[2], left_line[3] );
+                }
+                lpoint_ini.y = 0 + offset_y;
+                lpoint_ini.x = ( ( 0 - left_b.y ) / left_m ) + left_b.x;
+                lpoint_fin.y = edge_image.rows + offset_y;
+                lpoint_fin.x = ( ( edge_image.rows - left_b.y ) / left_m ) + left_b.x;
+                cv::line( image_, lpoint_ini, lpoint_fin, cv::Scalar( 0, 0, 255 ), 3, cv::LINE_AA );
+
+                lpoint_mid.y = edge_image.rows * 0.2 + offset_y;
+                lpoint_mid.x = ( ( edge_image.rows * 0.2 - left_b.y ) / left_m ) + left_b.x;
+            }
+        }
+
+        // Function to compute the steering angle
+        void steeringAngle( bool right, bool left )
+        {
+            if( right &&
+                left )  // if the right lane and the left lane of the road are detected in same time
+            {
+                // compute the middle of the road
+                point_mid.x = ( lpoint_mid.x + rpoint_mid.x ) / 2;
+                point_mid.y = ( lpoint_mid.y + rpoint_mid.y ) / 2;
+
+                // define the car position in the camera image, which is the middle point of bottom
+                // edge
+                cv::Point car_pos;
+                car_pos.x = image_.cols / 2;
+                car_pos.y = image_.rows;
+
+                // connect the car position and the middle of the road, and draw it as a green line
+                // on the camera image
+                cv::line( image_, point_mid, car_pos, cv::Scalar( 0, 255, 0 ), 3, cv::LINE_AA );
+
+                // following is a P controller, whose input is the angle between the green line from
+                // last step and the centre line of camera image
+                double slope_steering =
+                    -( point_mid.y - car_pos.y ) / ( point_mid.x - car_pos.x + 0.00001 );
+                steering_angle = atanf( 1 / slope_steering ) / 3.1415926 * 180 / 90 * steering_k;
+
+                // saturation [-1,1]
+                if( steering_angle > 1 )
+                {
+                    steering_angle = 1;
+                }
+                else if( steering_angle < -1 )
+                {
+                    steering_angle = -1;
+                }
+                steering_flag = true;
+                right_flag = false;
+                left_flag = false;
+                return;
+            }
+            else  // the detection of lane failed, and set the steering angle to 0
+            {
+                std::cout << "the detection of lane failed" << std::endl;
+                steering_angle = 0;
+                steering_flag = true;
+                right_flag = false;
+                left_flag = false;
+                return;
+            }
+        }
+
+        // Function to control the velocity based on the maximum velocíty and the front roadblock
+        void velocityController()
+        {
+            float k_decelerate_p = 0.0010;  // define the Parameter in P controller
+            float k_decelerate_d = 0.0005;  // define the Parameter in D controller
+
+            if( brake_flag )
+            {
+                throttle = -1;  // brake emergently
+            }
+            else if( decelerate_flag )  // decelerate slowly
+            {
+                float dist =
+                    sqrt( pow( pos_x, 2 ) + pow( pos_y, 2 ) );  // define the distance to front car
+                float differential =
+                    ( dist_old - dist ) / 0.01;  // define the differential of distance, is just the
+                                                 // relative velocoity to front car
+                dist_old = dist;  // save the distance to front car in last sample time
+                if( differential < 10 &&
+                    ego_velocity_ <
+                        30 )  // if ego car moves with very low velocity and the distance to front
+                              // car has only small change, it means ego car should totally stop
+                {
+                    throttle = 0;
+                    return;
+                }
+                throttle =  // Otherwise the velocity will be controlled by a PD controller
+                    0.60 - k_decelerate_p * ( minDistance - dist ) - k_decelerate_d * differential;
+
+                // saturation [-1,1]
+                if( throttle < -1 )
+                {
+                    throttle = -1;
+                }
+                else if( throttle > 1 )
+                {
+                    throttle = 1;
+                }
+            }
+            else if( ego_velocity_ > maxVelocity )  // Beschränkung von maximaler Geschwindigkeit
+            {
+                throttle = 0.4;
+                dist_old = minDistance;
+            }
+            else  // wenn vorner Bereich frei ist, beschleunigt sich das Fahrzeug mit voll Gadpedal
+            {
+                throttle = 1;
+                dist_old = minDistance;
+            }
+        }
+
+
+
+// Helper functions, no changes needed
+    public:
+		// Function to process received tronis data
+		bool getData( tronis::ModelDataWrapper data_model )
+		{
+            if( data_model->GetModelType() == tronis::ModelType::Tronis )
+            {
+                std::cout << "Id: " << data_model->GetTypeId()
+                            << ", Name: " << data_model->GetName()
+                            << ", Time: " << data_model->GetTime() << std::endl;
+
+                // if data is sensor output, process data
+                switch( static_cast<tronis::TronisDataType>( data_model->GetDataTypeId() ) )
+                {
+                    case tronis::TronisDataType::Image:
+                    {
+                        processImage(
+                            data_model->GetName(),
+                            data_model.get_typed<tronis::ImageSub>()->Image );
+                        
+                        break;
+                    }
+                    case tronis::TronisDataType::ImageFrame:
+                    {
+                        const tronis::ImageFrame& frames(
+                            data_model.get_typed<tronis::ImageFrameSub>()->Images );
+                        for( size_t i = 0; i != frames.numImages(); ++i )
+                        {
+                            std::ostringstream os;
+                            os << data_model->GetName() << "_" << i + 1;
+
+                            processImage( os.str(), frames.image( i ) );
+                        }
+                        
+                        break;
+                    }
+                    case tronis::TronisDataType::ImageFramePose:
+                    {
+                        const tronis::ImageFrame& frames(
+                            data_model.get_typed<tronis::ImageFramePoseSub>()->Images );
+                        for( size_t i = 0; i != frames.numImages(); ++i )
+                        {
+                            std::ostringstream os;
+                            os << data_model->GetName() << "_" << i + 1;
+
+                            processImage( os.str(), frames.image( i ) );
+                        }
+                        
+                        break;
+                    }
+                    case tronis::TronisDataType::PoseVelocity:
+                    {
+                        processPoseVelocity( data_model.get_typed<tronis::PoseVelocitySub>() );
+                        break;
+                    }
+                    case tronis::TronisDataType::BoxData:
+                    {
+                        processObject( data_model.get_typed<tronis::BoxDataSub>() );
+                        break;
+                    }
+                    default:
+                    {
+                        std::cout << data_model->ToString() << std::endl;
+                        
+                        break;
+                    }
+                }
+                return true;
+            }
+            else
+            {
+                std::cout << data_model->ToString() << std::endl;
+                return false;
+            }
+		}
+
+	protected:
+		// Function to show an openCV image in a separate window
+        void showImage( std::string image_name, cv::Mat image )
+        {
+            cv::Mat out = image;
+            if( image.type() == CV_32F || image.type() == CV_64F )
+            {
+                cv::normalize( image, out, 0.0, 1.0, cv::NORM_MINMAX, image.type() );
+            }
+            cv::namedWindow( image_name.c_str(), cv::WINDOW_NORMAL );
+            cv::imshow( image_name.c_str(), out );
+        }
+
+		// Function to convert tronis image to openCV image
+		bool processImage( const std::string& base_name, const tronis::Image& image )
+        {
+            std::cout << "processImage" << std::endl;
+            if( image.empty() )
+            {
+                std::cout << "empty image" << std::endl;
+                return false;
+            }
+
+            image_name_ = base_name;
+            image_ = tronis::image2Mat( image );
+            
+            detectLanes();
+			
+            /*showImage( image_name_, image_ );*/
+
+            return true;
+        }
+
+		
+};
+
+// main loop opens socket and listens for incoming data
+int main( int argc, char** argv )
+{
+    std::cout << "Welcome to lane assistant" << std::endl;
+
+	// specify socket parameters
+	std::string socket_type = "TcpSocket";
+    std::string socket_ip = "127.0.0.1";
+    std::string socket_port = "7778";
+
+    std::ostringstream socket_params;
+    socket_params << "{Socket:\"" << socket_type << "\", IpBind:\"" << socket_ip << "\", PortBind:" << socket_port << "}";
+
+    int key_press = 0;	// close app on key press 'q'
+    tronis::CircularMultiQueuedSocket msg_grabber;
+    uint32_t timeout_ms = 500; // close grabber, if last received msg is older than this param
+
+	LaneAssistant lane_assistant;
+
+	while( key_press != 'q' )
+    {
+        std::cout << "Wait for connection..." << std::endl;
+        msg_grabber.open_str( socket_params.str() );
+
+        if( !msg_grabber.isOpen() )
+        {
+            printf( "Failed to open grabber, retry...!\n" );
+            continue;
+        }
+
+        std::cout << "Start grabbing" << std::endl;
+		tronis::SocketData received_data;
+        uint32_t time_ms = 0;
+
+        while( key_press != 'q' )
+        {
+			// wait for data, close after timeout_ms without new data
+            if( msg_grabber.tryPop( received_data, true ) )
+            {
+				// data received! reset timer
+                time_ms = 0;
+
+				// convert socket data to tronis model data
+                tronis::SocketDataStream data_stream( received_data );
+                tronis::ModelDataWrapper data_model(
+                    tronis::Models::Create( data_stream, tronis::MessageFormat::raw ) );
+                if( !data_model.is_valid() )
+                {
+                    std::cout << "received invalid data, continue..." << std::endl;
+                    continue;
+                }
+				// identify data type
+                lane_assistant.getData( data_model );
+                lane_assistant.processData( msg_grabber );
+            }
+            else
+            {
+				// no data received, update timer
+                ++time_ms;
+                if( time_ms > timeout_ms )
+                {
+                    std::cout << "Timeout, no data" << std::endl;
+                    msg_grabber.close();
+                    break;
+                }
+                else
+                {
+                    std::this_thread::sleep_for( std::chrono::milliseconds( 10 ) );
+                    key_press = cv::waitKey( 1 );
+                }
+            }
+        }
+        msg_grabber.close();
+    }
+    return 0;
+}
