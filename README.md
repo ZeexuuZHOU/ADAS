@@ -14,7 +14,7 @@ Um einen Spurhalteassistent mit Geschwindigkeitsregleung zu entwickeln
   - Kantedetektion mit Sobel Operator
   - Liniendetektion mittels Hough Transformation
   - Beseitigung unwichtiger Linien 
-  - Regression mittels Least squres
+  - Feststellung der Grenze von Fahrbahn mittels Regression Least squres Methode
 5. Querregelung des Fahrzeugs 
 6. Längsregelung des Fahrzeugs
 ## Ergebnis
