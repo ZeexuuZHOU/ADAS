@@ -27,3 +27,5 @@ Um einen Spurhalteassistent mit Geschwindigkeitsregleung zu entwickeln
     - *Eingabe: Die Distanz zum vorausfahrenden nächsten Fahrzeug*
     - *Ausgabe: Gaspedal zwischen -1 und +1*
 ## Ergebnis
+## Schwächen
+
