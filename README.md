@@ -2,8 +2,10 @@
 ## Ziel
 Um einen Spurhalteassistent mit Geschwindigkeitsregleung zu entwickeln
 ## Aufgabe
-- Szenarioerstellung in Unreal engine
-- Algorithmus zur Spurerkennung (Bildverarbeitung durch OpenCV)
-- Querregelung des Fahrzeugs 
-- Längsregelung des Fahrzeugs
+1. Szenarioerstellung in Unreal engine
+  - Erstellen Sie eine einspurige Teststrecke
+
+3. Algorithmus zur Spurerkennung (Bildverarbeitung durch OpenCV)
+4. Querregelung des Fahrzeugs 
+5. Längsregelung des Fahrzeugs
 ## Ergebnis
