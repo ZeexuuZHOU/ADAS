@@ -3,7 +3,7 @@
 Um einen Spurhalteassistent mit Geschwindigkeitsregleung zu entwickeln
 ## Aufgabe
 1. **Szenarioerstellung in Unreal engine**
-  - *Erstellung einer einspurigen Teststrecke
+  - *Erstellung einer einspurigen Teststrecke*
   - *Plazierung des Testfahrzeugs und der Trajektorie
 3. **Algorithmus zur Spurerkennung (Bildverarbeitung durch OpenCV)**
   - *Plazierung eines Kamerasensors am Platz von Rückspiegel
