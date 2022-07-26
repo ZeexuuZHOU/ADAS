@@ -9,7 +9,7 @@ Um einen Spurhalteassistent mit Geschwindigkeitsregleung zu entwickeln
   - *Plazierung eines Kamerasensors am Platz von Rückspiegel*
   - *Übertragung von Kamerabild nach der App "lane_assistant"*
   - *Bildrauschunterdrückung durch Gaussian Filter*
-  - *ROI, mittels einer Polygonmaske oder einer rechteckige Maske*
+  - *Bereich von Interesse, mittels einer Polygonmaske oder einer rechteckige Maske*
   - *BGR Bild wird in binäres Bild transformiert*
   - *Kantedetektion mit Sobel Operator*
   - *Liniendetektion mittels Hough Transformation*
