@@ -27,6 +27,6 @@ Um einen Spurhalteassistent mit Geschwindigkeitsregleung zu entwickeln
     - *Eingabe: Die Distanz zum vorausfahrenden nächsten Fahrzeug*
     - *Ausgabe: Gaspedal zwischen -1 und +1*
 ## Ergebnis
-<img src="https://media.giphy.com/media/vFKqnCdLPNOKc/giphy.gif" width="40" height="40" />
+<img src="https://github.com/ZeexuuZHOU/ADAS_Simulation_in_UnrealEngine/blob/main/Bildverarbeitung.gif" height="40" />
 ## Schwächen
 
