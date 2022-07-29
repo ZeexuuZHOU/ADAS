@@ -28,11 +28,11 @@ Um einen Spurhalteassistent mit Geschwindigkeitsregleung zu entwickeln
     - *Ausgabe: Gaspedal zwischen -1 und +1*
 ## Ergebnis
 1. Bildverarbeitung(von Linke nach Rechte: Kamerabild - Bereich von Interesse - Binäres Bild - Kantedetektion - Liniendetektion)
-<div align=center><img src="https://github.com/ZeexuuZHOU/ADAS_Simulation_in_UnrealEngine/blob/main/Bildverarbeitung.gif" >
-2. Bremsen
-<div align=center><img src = "https://github.com/ZeexuuZHOU/ADAS_Simulation_in_UnrealEngine/blob/main/Bremse.gif">
-3. Folgen
-4. Überholen
+<div align=center><img src="https://github.com/ZeexuuZHOU/ADAS_Simulation_in_UnrealEngine/blob/main/Bildverarbeitung.gif" >  
+2. Bremsen  
+<div align=center><img src = "https://github.com/ZeexuuZHOU/ADAS_Simulation_in_UnrealEngine/blob/main/Bremse.gif">  
+3. Folgen 
+4. Überholen 
 
 ## Schwächen
 
