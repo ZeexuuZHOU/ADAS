@@ -27,7 +27,9 @@ Um einen Spurhalteassistent mit Geschwindigkeitsregleung zu entwickeln
     - *Eingabe: Die Distanz zum vorausfahrenden nächsten Fahrzeug*
     - *Ausgabe: Gaspedal zwischen -1 und +1*
 ## Ergebnis
+Bildverarbeitung(von Linke nach Rechte: Kamerabild - Bereich von Interesse - binäres Bild - Kantedetektion - Liniendetektion)
 <img src="https://github.com/ZeexuuZHOU/ADAS_Simulation_in_UnrealEngine/blob/main/Bildverarbeitung.gif" >
+Bremsen
 <img src = "https://github.com/ZeexuuZHOU/ADAS_Simulation_in_UnrealEngine/blob/main/Bremse.gif">
 
 ## Schwächen
