@@ -34,9 +34,9 @@ Um einen Spurhalteassistent mit Geschwindigkeitsregleung zu entwickeln
 <img src = "https://github.com/ZeexuuZHOU/ADAS_Simulation_in_UnrealEngine/blob/main/Bremse.gif">  
   
 3. Folgen 
-
+lansam:
 <img src = „https://github.com/ZeexuuZHOU/ADAS_Simulation_in_UnrealEngine/blob/main/Folgen.gif“> 
-
+schnell:
 <img src = "https://github.com/ZeexuuZHOU/ADAS_Simulation_in_UnrealEngine/blob/main/Folgen2.gif"> 
 
 5. Überholen 
