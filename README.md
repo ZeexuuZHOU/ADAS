@@ -26,7 +26,7 @@ Um einen Spurhalteassistent mit Geschwindigkeitsregleung zu entwickeln
   - *PD-Regler*
     - *Eingabe: Die Distanz zum vorausfahrenden nächsten Fahrzeug*
     - *Ausgabe: Gaspedal zwischen -1 und +1*
-## Ergebnis
+## Ergebnis(GIF)
 1. Bildverarbeitung(von Linke nach Rechte: Kamerabild - Bereich von Interesse - Binäres Bild - Kantedetektion - Liniendetektion)
 <img src="https://github.com/ZeexuuZHOU/ADAS_Simulation_in_UnrealEngine/blob/main/Bildverarbeitung.gif" >  
   
@@ -47,4 +47,10 @@ schnell fahren(60 km/h):
 <img src = "https://github.com/ZeexuuZHOU/ADAS_Simulation_in_UnrealEngine/blob/main/U%CC%88berholen.gif"> 
 
 ## Schwächen
-
+1. **Schlechte Robustheit bei Spurerkennung in folgende Szenen**:
+  - *Schnee*
+  - *Reflektion aus dem glatten Boden*
+  - *Andere Symbole auf dem Boden*
+  
+2. **Nur verfügbar bei Autobahn, Keine Verfügbarkeit bei größer Krümmung oder Kreuzung**
+3. **Nicht fähig, Fahrbahn zu wechseln und vorausfahrendes Fahrzeug intelligent zu überholen**
