@@ -1,4 +1,6 @@
 # ADAS_Simulation_in_UnrealEngine
+## Notiz über die Programme Lane_assistant.cpp
+Ich habe das Programm allein abgeschlossen. In Lane_assistant.cpp gibt es schon vorgegebene Teile, die Main loop und die Kommunikation zwischen VScode und Unreal Engine beinhaltet, und Ich habe die Funktion processData(), detectLanes(), processObject(), denoise(), cropping_rectangle(), cropping_polygon(), toBinary(), toBinary_white(), edgeDetection(), lineDetection(), steeringAngle(), velocityController() geschrieben.
 ## Ziel
 Um einen Spurhalteassistent mit Geschwindigkeitsregleung zu entwickeln
 ## Aufgabe
